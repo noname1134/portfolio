@@ -23,10 +23,9 @@ pygame.display.set_caption("Memory Card Game")
 class MemoryGame:
     def __init__(self):
         self.board = self.generate_random_board()
-        self.visible_cards = [[0 for col in range(COLS)] for row in range(ROWS)]
-        self.matched_cards = ()
-        self.hide_time = 0
+        self.visible_cards = [[HIDDEN for col in range(COLS)] for row in range(ROWS)]
         self.selected_cards = []
+        self.hide_time = 0
 
     def check_match(self):
         first_card = self.board[self.selected_cards[0][0]][self.selected_cards[0][1]]
