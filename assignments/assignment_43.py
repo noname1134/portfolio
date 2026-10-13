@@ -87,7 +87,7 @@ def evaluate(model: Pipeline, X_train: pd.DataFrame, y_train: pd.Series) -> pd.D
     return result_df
 
 
-def finale_test(model: Pipeline, X_test: pd.DataFrame, y_test: pd.Series) -> dict[str, float]:
+def final_test(model: Pipeline, X_test: pd.DataFrame, y_test: pd.Series) -> dict[str, float]:
     predictions = model.predict(X_test)
     probabilities = model.predict_proba(X_test)[:, 1]
     return {
@@ -125,7 +125,7 @@ def main() -> None:
     print("Expected net profit:", best_profit)
     """
     model.fit(X_train, y_train)
-    for name, value in finale_test(model, X_test, y_test).items():
+    for name, value in final_test(model, X_test, y_test).items():
         print(f"{name:<10}{value:.3f}")
     """
 
