@@ -9,8 +9,7 @@ from sklearn.compose import ColumnTransformer
 from sklearn.dummy import DummyClassifier
 from sklearn.impute import SimpleImputer
 from sklearn.linear_model import LogisticRegression
-from sklearn.metrics import brier_score_loss, log_loss, roc_auc_score
-from sklearn.model_selection import StratifiedKFold, cross_val_predict, train_test_split, cross_validate
+from sklearn.model_selection import StratifiedKFold, train_test_split, cross_validate
 from sklearn.pipeline import Pipeline
 from sklearn.preprocessing import OneHotEncoder, StandardScaler
 
