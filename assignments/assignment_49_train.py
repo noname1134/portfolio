@@ -16,6 +16,7 @@ DATA_PATH = Path("data/Telco-Customer-Churn.csv")
 MODEL_PATH = Path("models/churn_model.joblib")
 FEATURE_NAMES_PATH = Path("models/churn_model_customer_features_names.csv")
 TEST_DATA_PATH = Path("test/test_customers.csv")
+REFERENCE_DATA_PATH = Path("models/reference_data.csv")
 
 ID_COLUMN = "customerID"
 TARGET = "Churn"
@@ -82,6 +83,9 @@ def main() -> None:
     df = load_data(DATA_PATH)
     X, y = df[FEATURES], df[TARGET]
     X_train, X_test, y_train, _ = train_test_split(X, y, test_size=TEST_SIZE, random_state=RANDOM_STATE, stratify=y)
+    REFERENCE_DATA_PATH.parent.mkdir(parents=True, exist_ok=True)
+    X_train.to_csv(REFERENCE_DATA_PATH, index=False)
+
     X_train = X_train.drop(columns=ID_COLUMN)
     model = build_model().fit(X_train, y_train)
     save_model(model, list(X_train.columns))
@@ -89,6 +93,7 @@ def main() -> None:
     TEST_DATA_PATH.parent.mkdir(parents=True, exist_ok=True)
     X_test.to_csv(TEST_DATA_PATH, index=False)
     print(f"Saved model -> {MODEL_PATH}")
+    print(f"Saved reference data -> {REFERENCE_DATA_PATH}")
     print(f"Saved test data -> {TEST_DATA_PATH}")
 
 
