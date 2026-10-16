@@ -1,6 +1,7 @@
 """Train the churn model and export an unlabeled test batch."""
 
 from pathlib import Path
+import utils
 
 import joblib
 import numpy as np
@@ -16,7 +17,8 @@ DATA_PATH = Path("data/Telco-Customer-Churn.csv")
 MODEL_PATH = Path("models/churn_model.joblib")
 FEATURE_NAMES_PATH = Path("models/churn_model_customer_features_names.csv")
 TEST_DATA_PATH = Path("test/test_customers.csv")
-REFERENCE_DATA_PATH = Path("models/reference_data.csv")
+REFERENCE_DATA_PATH = Path("data/reference_data.csv")
+TEST_CHURN_DATA_PATH = Path("data/actual_churn.csv")
 
 ID_COLUMN = "customerID"
 TARGET = "Churn"
@@ -82,16 +84,17 @@ def save_model(model: Pipeline, features: list[str]) -> None:
 def main() -> None:
     df = load_data(DATA_PATH)
     X, y = df[FEATURES], df[TARGET]
-    X_train, X_test, y_train, _ = train_test_split(X, y, test_size=TEST_SIZE, random_state=RANDOM_STATE, stratify=y)
-    REFERENCE_DATA_PATH.parent.mkdir(parents=True, exist_ok=True)
-    X_train.to_csv(REFERENCE_DATA_PATH, index=False)
+    X_train, X_test, y_train, y_test = train_test_split(X, y, test_size=TEST_SIZE, random_state=RANDOM_STATE, stratify=y)
+    y_test_with_id = pd.DataFrame(y_test, columns=[TARGET])
+    y_test_with_id[ID_COLUMN] = X_test[ID_COLUMN].values
+    utils.save_csv(REFERENCE_DATA_PATH, X_train)
+    utils.save_csv(TEST_CHURN_DATA_PATH, y_test_with_id)
 
     X_train = X_train.drop(columns=ID_COLUMN)
     model = build_model().fit(X_train, y_train)
     save_model(model, list(X_train.columns))
 
-    TEST_DATA_PATH.parent.mkdir(parents=True, exist_ok=True)
-    X_test.to_csv(TEST_DATA_PATH, index=False)
+    utils.save_csv(TEST_DATA_PATH, X_test)
     print(f"Saved model -> {MODEL_PATH}")
     print(f"Saved reference data -> {REFERENCE_DATA_PATH}")
     print(f"Saved test data -> {TEST_DATA_PATH}")

@@ -17,6 +17,11 @@ def require_file(path: Path, hint: str) -> None:
         raise FileNotFoundError(f"{path} not found. {hint}")
 
 
+def save_csv(output_path: Path, data: pd.DataFrame) -> None:
+    output_path.parent.mkdir(parents=True, exist_ok=True)
+    data.to_csv(output_path, index=False)
+
+
 def validate_not_empty(df: pd.DataFrame) -> None:
     if df.empty:
         raise ValueError("Input CSV contains no customers")

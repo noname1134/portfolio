@@ -17,7 +17,9 @@ import utils as utils
 MODEL_PATH = Path("models/churn_model.joblib")
 FEATURE_NAMES_PATH = Path("models/churn_model_customer_features_names.csv")
 PREDICTIONS_PATH = Path("result/churn_model_predictions.csv")
+DRIFTED_PREDICTION_PATH = Path("result/drifted_churn_model_predictions.csv")
 TEST_DATA_PATH = Path("test/test_customers.csv")
+DRIFTED_TEST_DATA_PATH = Path("test/drifted_test_customers.csv")
 
 CONTACT_CAPACITY = 125
 ID_COLUMN = "customerID"
@@ -88,16 +90,15 @@ def predict(model_path: Path, input_path: Path, output_path: Path, capacity: int
     verify_campaign(result, expected_customers=len(df), capacity=capacity)
     result["churn_probability"] = result["churn_probability"].round(PROBABILITY_DECIMALS)
 
-    output_path.parent.mkdir(parents=True, exist_ok=True)
-    result.to_csv(output_path, index=False)
+    utils.save_csv(output_path, result)
     return result
 
 
 def main() -> None:
     parser = argparse.ArgumentParser(description=__doc__, formatter_class=argparse.RawDescriptionHelpFormatter)
-    parser.add_argument("--input", type=Path, default=TEST_DATA_PATH, help=f"CSV with customer features (default: {TEST_DATA_PATH})",)
-    parser.add_argument("--output", type=Path, default=PREDICTIONS_PATH, help=f"where to write the results (default: {PREDICTIONS_PATH})",)
-    parser.add_argument("--model", type=Path, default=MODEL_PATH, help=f"path to the saved model (default: {MODEL_PATH})",)
+    parser.add_argument("--input", type=Path, default=TEST_DATA_PATH, help=f"CSV with customer features (default: {TEST_DATA_PATH})")
+    parser.add_argument("--output", type=Path, default=PREDICTIONS_PATH, help=f"where to write the results (default: {PREDICTIONS_PATH})")
+    parser.add_argument("--model", type=Path, default=MODEL_PATH, help=f"path to the saved model (default: {MODEL_PATH})")
     parser.add_argument("--capacity", type=int, default=CONTACT_CAPACITY, help=f"number of customers to select for contact (default: {CONTACT_CAPACITY})")
     args = parser.parse_args()
     if args.capacity < 1:

@@ -10,8 +10,10 @@ from statsmodels.stats.multitest import multipletests
 
 import utils
 
-REFERENCE_DATA_PATH = Path("models/reference_data.csv")
+REFERENCE_DATA_PATH = Path("data/reference_data.csv")
 TEST_DATA_PATH = Path("test/test_customers.csv")
+DRIFTED_TEST_DATA_PATH = Path("test/drifted_test_customers.csv")
+
 REPORT_FOLDER_PATH = Path("result")
 ORIGINAL_REPORT = "drift_report_original.csv"
 SIMULATED_REPORT = "drift_report_simulated.csv"
@@ -44,6 +46,7 @@ def simulate_drift(df: pd.DataFrame) -> pd.DataFrame:
     rng = np.random.default_rng(42)
     missing_indices = rng.choice(drifted.index,size=int(len(drifted) * 0.30),replace=False)
     drifted.loc[missing_indices, "PaymentMethod"] = np.nan
+    utils.save_csv(DRIFTED_TEST_DATA_PATH, drifted)
     return drifted
 
 
