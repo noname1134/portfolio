@@ -1,3 +1,5 @@
+"""Compare the churn model's predictions on production data with the actual churn outcomes."""
+
 import argparse
 from pathlib import Path
 
@@ -17,127 +19,138 @@ COST_PER_CONTACT = 50
 DEFAULT_CAPACITY = 125
 DEFAULT_THRESHOLD = 0.5
 
+CHURN_COLUMN = "Churn"
+PROBABILITY_COLUMN = "churn_probability"
+
 
 def campaign_profit(churners_caught: int, contacted: int) -> int:
     return VALUE_PER_CHURNER_CAUGHT * churners_caught - COST_PER_CONTACT * contacted
 
-def find_df_problems(churn_df: pd.Series, compere_df: pd.Series, compere_name: str) -> None:
-    problems = []
-    if set(churn_df) != set(compere_df):
-        problems.append(f"{compere_name} predictions customers do not match actual churn customers")
-    if len(churn_df) != len(compere_df):
-        problems.append(f"{compere_name} predictions customers not the same size as actual churn customers")
-    if problems:
-        raise ValueError("Invalid input data:\n- " + "\n- ".join(problems))
+
+def validate_same_customers(actual_ids: pd.Series, predicted_ids: pd.Series, label: str) -> None:
+    """The predictions must cover exactly the customers that have an actual churn outcome."""
+    without_predictions = set(actual_ids) - set(predicted_ids)
+    without_outcomes = set(predicted_ids) - set(actual_ids)
+    if without_predictions or without_outcomes:
+        raise ValueError(
+            f"{label}: predictions and actual churn cover different customers "
+            f"({len(without_predictions)} without predictions, {len(without_outcomes)} without actual churn)"
+        )
 
 
-def find_data_problems(y_true: np.ndarray, probs: np.ndarray, capacity: int = DEFAULT_CAPACITY) -> None:
+def validate_scores(y_true: np.ndarray, probabilities: np.ndarray) -> None:
+    """Raise one ValueError listing every problem with the labels and probabilities."""
     problems = []
-    if len(y_true) != len(probs):
-        problems.append("Labels and probabilities must have the same length")
-    if capacity <= 0:
-        problems.append("Capacity must be positive")
-    if not np.isfinite(probs).all():
-        problems.append("Probabilities must be finite")
+    if len(y_true) != len(probabilities):
+        problems.append("labels and probabilities must have the same length")
     if not np.isin(y_true, [0, 1]).all():
-        problems.append("Actual churn labels must contain only 0 and 1")
+        problems.append("actual churn labels must contain only 0 and 1")
     if len(np.unique(y_true)) < 2:
-        problems.append("ROC-AUC requires both churn classes")
-    if ((probs < 0) | (probs > 1)).any():
-        problems.append("Probabilities must be between 0 and 1")
+        problems.append("both churn classes are required to compute ROC-AUC")
+    if not np.isfinite(probabilities).all():
+        problems.append("probabilities must be finite")
+    elif ((probabilities < 0) | (probabilities > 1)).any():
+        problems.append("probabilities must be between 0 and 1")
     if problems:
         raise ValueError("Invalid input data:\n- " + "\n- ".join(problems))
 
 
 def load_csv(path: Path, column_names: list[str]) -> pd.DataFrame:
+    available = pd.read_csv(path, nrows=0).columns
+    missing = [column for column in column_names if column not in available]
+    if missing:
+        raise ValueError(f"{path} is missing required columns: {missing}")
+
     df = pd.read_csv(path, usecols=column_names)
     utils.validate_not_empty(df)
     utils.validate_unique_ids(df)
     return df
 
 
+def top_n_mask(probabilities: np.ndarray, n: int) -> np.ndarray:
+    """Boolean mask of the n highest probabilities; ties keep their original row order."""
+    if n < 1:
+        raise ValueError("n must be at least 1")
+    mask = np.zeros(len(probabilities), dtype=bool)
+    mask[np.argsort(-probabilities, kind="stable")[:n]] = True
+    return mask
 
-def evaluate(y_true: np.ndarray, probs: np.ndarray, data_type: str, predictions: np.ndarray, churners_caught: int, contacted: int, method: str) -> pd.DataFrame:
-    row = {
-        "data_type": data_type,
-        "method": method,
-        "roc_auc": roc_auc_score(y_true, probs),
-        "log_loss": log_loss(y_true, probs),
-        "brier_score": brier_score_loss(y_true, probs),
+
+def probability_metrics(y_true: np.ndarray, probabilities: np.ndarray) -> dict[str, float]:
+    """Metrics that score the probabilities themselves, independent of who gets contacted."""
+    return {
+        "roc_auc": roc_auc_score(y_true, probabilities),
+        "log_loss": log_loss(y_true, probabilities),
+        "brier_score": brier_score_loss(y_true, probabilities),
+    }
+
+
+def selection_metrics(y_true: np.ndarray, selected: np.ndarray) -> dict[str, float]:
+    """Classification and profit metrics for contacting the customers flagged in `selected`."""
+    predictions = selected.astype(int)
+    contacted = int(selected.sum())
+    caught = int(y_true[selected].sum())
+    return {
         "precision": precision_score(y_true, predictions, zero_division=0),
         "recall": recall_score(y_true, predictions, zero_division=0),
         "f1": f1_score(y_true, predictions, zero_division=0),
         "contacted_customers": contacted,
-        "churners_caught": churners_caught,
-        "net_profit": campaign_profit(churners_caught, contacted)
+        "churners_caught": caught,
+        "net_profit": campaign_profit(caught, contacted),
     }
-    result_df = pd.DataFrame([row])
-    return result_df
 
 
-def threshold_eval(y_true: np.ndarray, probs: np.ndarray, data_type: str, threshold: float = DEFAULT_THRESHOLD) -> pd.DataFrame:
-    threshold_predictions = (probs >= threshold).astype(int)
-    threshold_contacted = int(threshold_predictions.sum())
-    threshold_churners_caught = int(np.sum(y_true * threshold_predictions))
-    threshold_method = f"threshold >= {threshold}"
-
-    result_df = evaluate(y_true, probs, data_type, threshold_predictions, threshold_churners_caught, threshold_contacted,threshold_method)
-    return result_df
-
-
-def top_n_eval(y_true: np.ndarray, probs: np.ndarray, data_type: str, capacity: int = DEFAULT_CAPACITY) -> pd.DataFrame:
-    find_data_problems(y_true, probs, capacity)
-    top_n_contacted = min(capacity, len(y_true))
-
-    selected_indices = np.argsort(-probs, kind="stable")[:top_n_contacted]
-    top_n_predictions = np.zeros(len(y_true), dtype=int)
-    top_n_predictions[selected_indices] = 1
-
-    top_n_churners_caught = y_true[selected_indices].sum()
-    top_n_method = f"top {top_n_contacted}"
-
-    result_df = evaluate(y_true, probs, data_type, top_n_predictions, top_n_churners_caught, top_n_contacted, top_n_method)
-    return result_df
-
-def build_eval_reports(real_churn_path: Path, model_pred_path: Path, output_path: Path, model_drifted_pred_path: Path) -> pd.DataFrame:
-    utils.require_file(real_churn_path, "Pass a churn data CSV with --reference_data.")
-    utils.require_file(model_pred_path, "Pass a model prediction CSV with --input.")
-    utils.require_file(model_drifted_pred_path, "Pass a model drifted prediction CSV with --input.")
+def build_performance_report(real_churn_path: Path, predictions_path: Path, data_type: str, capacity: int = DEFAULT_CAPACITY, threshold: float = DEFAULT_THRESHOLD,) -> pd.DataFrame:
+    """One row per contact strategy (threshold and top-n), scored against the actual churn."""
+    utils.require_file(real_churn_path, "Pass the actual churn CSV with --real_churn.")
+    utils.require_file(predictions_path, "Pass the model predictions CSV with --input or --drifted_input.")
 
     real_churn_df = load_csv(real_churn_path, [utils.ID_COLUMN, "Churn"])
-    model_prob_df = load_csv(model_pred_path, [utils.ID_COLUMN, "churn_probability"])
-    model_drifted_prob_df = load_csv(model_drifted_pred_path, [utils.ID_COLUMN, "churn_probability"])
+    predicted_df = load_csv(predictions_path, [utils.ID_COLUMN, "churn_probability"])
 
-    find_df_problems(real_churn_df[utils.ID_COLUMN], model_prob_df[utils.ID_COLUMN], "original")
-    find_df_problems(real_churn_df[utils.ID_COLUMN], model_drifted_prob_df[utils.ID_COLUMN], "drifted")
+    validate_same_customers(real_churn_df[utils.ID_COLUMN], predicted_df[utils.ID_COLUMN], data_type)
 
-    data_df = pd.merge(model_prob_df, real_churn_df, on=utils.ID_COLUMN, how="inner", validate="one_to_one")
-    drifted_data_df = pd.merge(model_drifted_prob_df, real_churn_df, on=utils.ID_COLUMN, how="inner", validate="one_to_one")
+    merged_df = predicted_df.merge(real_churn_df, on=utils.ID_COLUMN, how="inner", validate="one_to_one")
+    y_true = merged_df[CHURN_COLUMN].to_numpy()
+    probabilities = merged_df[PROBABILITY_COLUMN].to_numpy()
+    validate_scores(y_true, probabilities)
 
-    find_data_problems(data_df["Churn"].to_numpy(), data_df["churn_probability"].to_numpy())
-    find_data_problems(drifted_data_df["Churn"].to_numpy(), drifted_data_df["churn_probability"].to_numpy())
+    top_n = min(capacity, len(y_true))
+    selections = {
+        f"threshold >= {threshold}": probabilities >= threshold,
+        f"top {top_n}": top_n_mask(probabilities, top_n),
+    }
 
-    threshold_result_df = threshold_eval(data_df["Churn"].to_numpy(), data_df["churn_probability"].to_numpy(), "original")
-    top_n_result_df = top_n_eval(data_df["Churn"].to_numpy(), data_df["churn_probability"].to_numpy(), "original")
+    scores = probability_metrics(y_true, probabilities)
+    rows = [
+        {"data_type": data_type, "method": method, **scores, **selection_metrics(y_true, selected)}
+        for method, selected in selections.items()
+    ]
 
-    threshold_drifted_result_df = threshold_eval(drifted_data_df["Churn"].to_numpy(), drifted_data_df["churn_probability"].to_numpy(), "drifted")
-    drifted_top_n_result_df = top_n_eval(drifted_data_df["Churn"].to_numpy(), drifted_data_df["churn_probability"].to_numpy(), "drifted")
-    combined_df = pd.concat([threshold_result_df, top_n_result_df, threshold_drifted_result_df, drifted_top_n_result_df],ignore_index=True).set_index("data_type").sort_values("net_profit", ascending=False)
+    result_df = pd.DataFrame(rows).set_index(["data_type", "method"])
+    return result_df
 
-    output_path.parent.mkdir(parents=True, exist_ok=True)
-    combined_df.to_csv(output_path)
-    return combined_df
 
 def main() -> None:
     parser = argparse.ArgumentParser(description=__doc__, formatter_class=argparse.RawDescriptionHelpFormatter)
     parser.add_argument("--input", type=Path, default=MODEL_PREDICTION_PATH, help=f"CSV with model predictions (default: {MODEL_PREDICTION_PATH})")
-    parser.add_argument("--drifted_input", type=Path, default=MODEL_DRIFTED_PREDICTION_PATH,help=f"CSV with model drifted predictions (default: {MODEL_DRIFTED_PREDICTION_PATH})")
+    parser.add_argument("--drifted_input", type=Path, default=MODEL_DRIFTED_PREDICTION_PATH, help=f"CSV with predictions on drifted data (default: {MODEL_DRIFTED_PREDICTION_PATH})")
+    parser.add_argument("--real_churn", type=Path, default=ACTUAL_CHURN_PATH, help=f"CSV with the actual churn outcomes (default: {ACTUAL_CHURN_PATH})")
     parser.add_argument("--output", type=Path, default=EVAL_PATH, help=f"where to write the evaluation report (default: {EVAL_PATH})")
-    parser.add_argument("--real_churn", type=Path, default=ACTUAL_CHURN_PATH, help=f"CSV with real churn (default: {ACTUAL_CHURN_PATH})")
-    args = parser.parse_args()
+    parser.add_argument("--capacity", type=int, default=DEFAULT_CAPACITY, help=f"customers that can be contacted (default: {DEFAULT_CAPACITY})")
+    parser.add_argument("--threshold", type=float, default=DEFAULT_THRESHOLD, help=f"churn probability at or above which a customer is contacted (default: {DEFAULT_THRESHOLD})")
 
-    build_eval_reports(args.real_churn, args.input, args.output, args.drifted_input)
-    print(f"reports -> {args.output}")
+    args = parser.parse_args()
+    if args.capacity < 1:
+        parser.error("--capacity must be at least 1")
+    if not 0 <= args.threshold <= 1:
+        parser.error("--threshold must be between 0 and 1")
+
+    prediction_files = {"original": args.input, "drifted": args.drifted_input}
+    reports = [build_performance_report(args.real_churn, path, data_type, args.capacity, args.threshold) for data_type, path in prediction_files.items()]
+    report_df = pd.concat(reports, ignore_index=False).sort_values("net_profit", ascending=False)
+    utils.save_csv(args.output, report_df, True)
+    print(f"report -> {args.output}")
 
 if __name__ == "__main__":
     main()

@@ -17,9 +17,9 @@ def require_file(path: Path, hint: str) -> None:
         raise FileNotFoundError(f"{path} not found. {hint}")
 
 
-def save_csv(output_path: Path, data: pd.DataFrame) -> None:
+def save_csv(output_path: Path, data: pd.DataFrame, index: bool = False) -> None:
     output_path.parent.mkdir(parents=True, exist_ok=True)
-    data.to_csv(output_path, index=False)
+    data.to_csv(output_path, index=index)
 
 
 def validate_not_empty(df: pd.DataFrame) -> None:
