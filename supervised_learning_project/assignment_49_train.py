@@ -13,33 +13,13 @@ from sklearn.model_selection import train_test_split
 from sklearn.pipeline import Pipeline
 from sklearn.preprocessing import OneHotEncoder, StandardScaler
 
-DATA_PATH = Path("data/Telco-Customer-Churn.csv")
-MODEL_PATH = Path("models/churn_model.joblib")
-FEATURE_NAMES_PATH = Path("models/churn_model_customer_features_names.csv")
-TEST_DATA_PATH = Path("test/test_customers.csv")
-REFERENCE_DATA_PATH = Path("data/reference_data.csv")
-TEST_CHURN_DATA_PATH = Path("data/actual_churn.csv")
-
-ID_COLUMN = "customerID"
-TARGET = "Churn"
-NA_TOKENS = ["", "NA", "N/A", "n/a", "-", "missing", "null", "None"]
-
 RANDOM_STATE = 42
 TEST_SIZE = 0.2
-
-NUMERIC_FEATURES = ["tenure", "MonthlyCharges", "TotalCharges", "SeniorCitizen"]
-CATEGORICAL_FEATURES = [
-    "gender", "Partner", "Dependents", "PhoneService", "PaperlessBilling",
-    "MultipleLines", "InternetService", "PaymentMethod", "OnlineSecurity",
-    "OnlineBackup", "DeviceProtection", "TechSupport", "StreamingTV",
-    "StreamingMovies", "Contract",
-]
-FEATURES = NUMERIC_FEATURES + CATEGORICAL_FEATURES + [ID_COLUMN]
 
 
 def load_data(path: Path) -> pd.DataFrame:
     """Load the CSV, fix blank TotalCharges, and encode the target as 0/1."""
-    df = pd.read_csv(path, na_values=NA_TOKENS)
+    df = pd.read_csv(path, na_values=utils.NA_TOKENS)
     df = df.replace(r"^\s*$", np.nan, regex=True)
 
     # Blank TotalCharges belong to new customers (tenure == 0) who haven't been billed yet.
@@ -47,9 +27,9 @@ def load_data(path: Path) -> pd.DataFrame:
     new_customers = df["TotalCharges"].isna() & (df["tenure"] == 0)
     df.loc[new_customers, "TotalCharges"] = 0
 
-    df[TARGET] = df[TARGET].map({"No": 0, "Yes": 1})
-    if df[TARGET].isna().any():
-        raise ValueError(f"Unexpected values in target column '{TARGET}'")
+    df[utils.CHURN_COLUMN] = df[utils.CHURN_COLUMN].map({"No": 0, "Yes": 1})
+    if df[utils.CHURN_COLUMN].isna().any():
+        raise ValueError(f"Unexpected values in target column '{utils.CHURN_COLUMN}'")
     return df
 
 
@@ -64,8 +44,8 @@ def build_model() -> Pipeline:
         ("encoder", OneHotEncoder(handle_unknown="ignore", drop="if_binary")),
     ])
     preprocessor = ColumnTransformer([
-        ("num", numeric, NUMERIC_FEATURES),
-        ("cat", categorical, CATEGORICAL_FEATURES),
+        ("num", numeric, utils.NUMERIC_FEATURES),
+        ("cat", categorical, utils.CATEGORICAL_FEATURES),
     ])
     return Pipeline([
         ("preprocessor", preprocessor),
@@ -75,29 +55,29 @@ def build_model() -> Pipeline:
 
 def save_model(model: Pipeline, features: list[str]) -> None:
     """Persist the fitted pipeline and the feature names it expects."""
-    MODEL_PATH.parent.mkdir(parents=True, exist_ok=True)
-    FEATURE_NAMES_PATH.parent.mkdir(parents=True, exist_ok=True)
-    joblib.dump(model, MODEL_PATH)
-    pd.Series(features, name="feature").to_csv(FEATURE_NAMES_PATH, index=False)
+    utils.MODEL_PATH.parent.mkdir(parents=True, exist_ok=True)
+    utils.FEATURE_NAMES_PATH.parent.mkdir(parents=True, exist_ok=True)
+    joblib.dump(model, utils.MODEL_PATH)
+    pd.Series(features, name="feature").to_csv(utils.FEATURE_NAMES_PATH, index=False)
 
 
 def main() -> None:
-    df = load_data(DATA_PATH)
-    X, y = df[FEATURES], df[TARGET]
+    df = load_data(utils.ORIGINAL_DATA_PATH)
+    X, y = df[utils.TOTAL_FEATURES], df[utils.CHURN_COLUMN]
     X_train, X_test, y_train, y_test = train_test_split(X, y, test_size=TEST_SIZE, random_state=RANDOM_STATE, stratify=y)
-    y_test_with_id = pd.DataFrame(y_test, columns=[TARGET])
-    y_test_with_id[ID_COLUMN] = X_test[ID_COLUMN].values
-    utils.save_csv(REFERENCE_DATA_PATH, X_train)
-    utils.save_csv(TEST_CHURN_DATA_PATH, y_test_with_id)
+    y_test_with_id = pd.DataFrame(y_test, columns=[utils.CHURN_COLUMN])
+    y_test_with_id[utils.ID_COLUMN] = X_test[utils.ID_COLUMN].values
+    utils.save_csv(utils.REFERENCE_DATA_PATH, X_train)
+    utils.save_csv(utils.TEST_CHURN_DATA_PATH, y_test_with_id)
 
-    X_train = X_train.drop(columns=ID_COLUMN)
+    X_train = X_train.drop(columns=utils.ID_COLUMN)
     model = build_model().fit(X_train, y_train)
     save_model(model, list(X_train.columns))
 
-    utils.save_csv(TEST_DATA_PATH, X_test)
-    print(f"Saved model -> {MODEL_PATH}")
-    print(f"Saved reference data -> {REFERENCE_DATA_PATH}")
-    print(f"Saved test data -> {TEST_DATA_PATH}")
+    utils.save_csv(utils.TEST_DATA_PATH, X_test)
+    print(f"Saved model -> {utils.MODEL_PATH}")
+    print(f"Saved reference data -> {utils.REFERENCE_DATA_PATH}")
+    print(f"Saved test data -> {utils.TEST_DATA_PATH}")
 
 
 if __name__ == "__main__":

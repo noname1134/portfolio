@@ -10,10 +10,6 @@ from statsmodels.stats.multitest import multipletests
 
 import utils
 
-REFERENCE_DATA_PATH = Path("data/reference_data.csv")
-TEST_DATA_PATH = Path("test/test_customers.csv")
-DRIFTED_TEST_DATA_PATH = Path("test/drifted_test_customers.csv")
-
 REPORT_FOLDER_PATH = Path("result")
 ORIGINAL_REPORT = "drift_report_original.csv"
 SIMULATED_REPORT = "drift_report_simulated.csv"
@@ -22,18 +18,10 @@ ALPHA = 0.05
 SIMULATED_CHARGE_INCREASE = 30
 
 MISSING_LABEL = "__missing__"
-NUMERIC_FEATURES = ["tenure", "MonthlyCharges", "TotalCharges", "SeniorCitizen"]
-CATEGORICAL_FEATURES = [
-    "gender", "Partner", "Dependents", "PhoneService", "PaperlessBilling",
-    "MultipleLines", "InternetService", "PaymentMethod", "OnlineSecurity",
-    "OnlineBackup", "DeviceProtection", "TechSupport", "StreamingTV",
-    "StreamingMovies", "Contract",
-]
-FEATURES = NUMERIC_FEATURES + CATEGORICAL_FEATURES
 
 # SeniorCitizen is a 0/1 flag, so it is compared by category counts rather than with the KS test.
 CONTINUOUS_FEATURES = ["tenure", "MonthlyCharges", "TotalCharges"]
-DISCRETE_FEATURES = CATEGORICAL_FEATURES + ["SeniorCitizen"]
+DISCRETE_FEATURES = utils.CATEGORICAL_FEATURES + ["SeniorCitizen"]
 
 
 def simulate_drift(df: pd.DataFrame) -> pd.DataFrame:
@@ -46,7 +34,7 @@ def simulate_drift(df: pd.DataFrame) -> pd.DataFrame:
     rng = np.random.default_rng(42)
     missing_indices = rng.choice(drifted.index,size=int(len(drifted) * 0.30),replace=False)
     drifted.loc[missing_indices, "PaymentMethod"] = np.nan
-    utils.save_csv(DRIFTED_TEST_DATA_PATH, drifted)
+    utils.save_csv(utils.DRIFTED_TEST_DATA_PATH, drifted)
     return drifted
 
 
@@ -136,8 +124,8 @@ def build_drift_reports(reference_path: Path, input_path: Path) -> tuple[pd.Data
     utils.require_file(reference_path, "Pass a reference data CSV with --reference_data.")
     utils.require_file(input_path, "Pass a customer CSV with --input.")
 
-    reference = utils.load_features(reference_path, FEATURES)
-    production = utils.load_features(input_path, FEATURES)
+    reference = utils.load_features(reference_path, utils.TOTAL_FEATURES)
+    production = utils.load_features(input_path, utils.TOTAL_FEATURES)
     return detect_drift(reference, production), detect_drift(reference, simulate_drift(production))
 
 
@@ -150,9 +138,9 @@ def save_reports(reports: dict[str, pd.DataFrame], output_dir: Path) -> None:
 
 def main() -> None:
     parser = argparse.ArgumentParser(description=__doc__, formatter_class=argparse.RawDescriptionHelpFormatter)
-    parser.add_argument("--input", type=Path, default=TEST_DATA_PATH, help=f"CSV with customer features (default: {TEST_DATA_PATH})")
+    parser.add_argument("--input", type=Path, default=utils.TEST_DATA_PATH, help=f"CSV with customer features (default: {utils.TEST_DATA_PATH})")
     parser.add_argument("--output", type=Path, default=REPORT_FOLDER_PATH, help=f"where to write the reports (default: {REPORT_FOLDER_PATH})")
-    parser.add_argument("--reference_data", type=Path, default=REFERENCE_DATA_PATH, help=f"CSV with reference data (default: {REFERENCE_DATA_PATH})")
+    parser.add_argument("--reference_data", type=Path, default=utils.REFERENCE_DATA_PATH, help=f"CSV with reference data (default: {utils.REFERENCE_DATA_PATH})")
     args = parser.parse_args()
 
     reports = dict(zip([ORIGINAL_REPORT, SIMULATED_REPORT],build_drift_reports(args.reference_data, args.input)))

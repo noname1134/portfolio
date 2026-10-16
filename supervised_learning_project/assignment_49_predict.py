@@ -14,21 +14,9 @@ import pandas as pd
 from sklearn.pipeline import Pipeline
 import utils as utils
 
-MODEL_PATH = Path("models/churn_model.joblib")
-FEATURE_NAMES_PATH = Path("models/churn_model_customer_features_names.csv")
-PREDICTIONS_PATH = Path("result/churn_model_predictions.csv")
-DRIFTED_PREDICTION_PATH = Path("result/drifted_churn_model_predictions.csv")
-TEST_DATA_PATH = Path("test/test_customers.csv")
-DRIFTED_TEST_DATA_PATH = Path("test/drifted_test_customers.csv")
 
 CONTACT_CAPACITY = 125
-ID_COLUMN = "customerID"
-NA_TOKENS = ["", "NA", "N/A", "n/a", "-", "missing", "null", "None"]
 PROBABILITY_DECIMALS = 4
-VALID_SENIOR_CITIZEN_VALUES = (0, 1)
-WHOLE_NUMBER_FEATURES = ("tenure", "SeniorCitizen")
-MAX_ROWS_SHOWN = 5
-NUMERIC_FEATURES = ["tenure", "MonthlyCharges", "TotalCharges", "SeniorCitizen"]
 
 
 def load_feature_names(path: Path) -> list[str]:
@@ -43,8 +31,8 @@ def verify_campaign(results: pd.DataFrame, expected_customers: int, capacity: in
     if len(results) != expected_customers:
         problems.append(f"expected {expected_customers} customers, got {len(results)}")
 
-    if results[ID_COLUMN].duplicated().any():
-        problems.append(f"duplicate {ID_COLUMN} values in the results")
+    if results[utils.ID_COLUMN].duplicated().any():
+        problems.append(f"duplicate {utils.ID_COLUMN} values in the results")
 
     probabilities = results["churn_probability"]
     if not probabilities.between(0, 1).all():  # also false for NaN
@@ -67,10 +55,10 @@ def verify_campaign(results: pd.DataFrame, expected_customers: int, capacity: in
 
 def build_campaign(model: Pipeline, df: pd.DataFrame, features: list[str], capacity: int) -> pd.DataFrame:
     """Rank customers by churn risk (1 = highest) and flag exactly `capacity` of them for contact."""
-    campaign = df[[ID_COLUMN]].copy()
+    campaign = df[[utils.ID_COLUMN]].copy()
     campaign["churn_probability"] = model.predict_proba(df[features])[:, 1]
 
-    campaign = campaign.sort_values(["churn_probability", ID_COLUMN], ascending=[False, True]).reset_index(drop=True)
+    campaign = campaign.sort_values(["churn_probability", utils.ID_COLUMN], ascending=[False, True]).reset_index(drop=True)
     campaign["customer_rank"] = np.arange(1, len(campaign) + 1)
     campaign["selected_for_contact"] = campaign["customer_rank"] <= capacity
     return campaign
@@ -79,11 +67,11 @@ def build_campaign(model: Pipeline, df: pd.DataFrame, features: list[str], capac
 def predict(model_path: Path, input_path: Path, output_path: Path, capacity: int) -> pd.DataFrame:
     """Score every customer in `input_path` and save the probabilities to `output_path`."""
     utils.require_file(model_path, "Train and save the model first.")
-    utils.require_file(FEATURE_NAMES_PATH, "It is written by the training script.")
+    utils.require_file(utils.FEATURE_NAMES_PATH, "It is written by the training script.")
     utils.require_file(input_path, "Pass a customer CSV with --input.")
 
     model = joblib.load(model_path)
-    features = load_feature_names(FEATURE_NAMES_PATH)
+    features = load_feature_names(utils.FEATURE_NAMES_PATH)
     df = utils.load_features(input_path, features)
     df = utils.clean_total_charges(df)
     result = build_campaign(model, df, features, capacity)
@@ -96,9 +84,9 @@ def predict(model_path: Path, input_path: Path, output_path: Path, capacity: int
 
 def main() -> None:
     parser = argparse.ArgumentParser(description=__doc__, formatter_class=argparse.RawDescriptionHelpFormatter)
-    parser.add_argument("--input", type=Path, default=TEST_DATA_PATH, help=f"CSV with customer features (default: {TEST_DATA_PATH})")
-    parser.add_argument("--output", type=Path, default=PREDICTIONS_PATH, help=f"where to write the results (default: {PREDICTIONS_PATH})")
-    parser.add_argument("--model", type=Path, default=MODEL_PATH, help=f"path to the saved model (default: {MODEL_PATH})")
+    parser.add_argument("--input", type=Path, default=utils.TEST_DATA_PATH, help=f"CSV with customer features (default: {utils.TEST_DATA_PATH})")
+    parser.add_argument("--output", type=Path, default=utils.PREDICTIONS_PATH, help=f"where to write the results (default: {utils.PREDICTIONS_PATH})")
+    parser.add_argument("--model", type=Path, default=utils.MODEL_PATH, help=f"path to the saved model (default: {utils.MODEL_PATH})")
     parser.add_argument("--capacity", type=int, default=CONTACT_CAPACITY, help=f"number of customers to select for contact (default: {CONTACT_CAPACITY})")
     args = parser.parse_args()
     if args.capacity < 1:
