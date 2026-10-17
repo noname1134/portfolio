@@ -71,6 +71,10 @@ def test_customer_validation(client, get_valid_customer, payload_overrides, expe
             "valid": True,
             "customer_id": payload["customer_id"]
         }
+    elif expected_status == 422:
+        details = response.json()["detail"]
+        assert isinstance(details, list)
+        assert len(details) > 0
 
 
 def test_single_prediction(client, get_valid_full_customer):
@@ -84,7 +88,7 @@ def test_single_prediction(client, get_valid_full_customer):
 
 
 def test_batch_predictions(client, get_valid_full_customer):
-    customer_one = get_valid_full_customer
+    customer_one = get_valid_full_customer.copy()
     customer_two = {**get_valid_full_customer, "customerID": "1234-ABCD"}
     payload = {"customers": [customer_one, customer_two]}
 
@@ -100,8 +104,34 @@ def test_batch_predictions(client, get_valid_full_customer):
         assert "churn_probability" in pred
         assert 0.0 <= pred["churn_probability"] <= 1.0
 
+    input_ids = [customer["customerID"] for customer in payload["customers"]]
+    output_ids = [prediction["customer_id"] for prediction in data["predictions"]]
+    assert output_ids == input_ids
 
 def test_empty_batch(client):
     payload = {"customers": []}
+    response = client.post("/predict/batch", json=payload)
+    assert response.status_code == 422
+
+
+def test_duplicate_customer_ids(client, get_valid_full_customer):
+    customer_one = get_valid_full_customer.copy()
+    customer_two = get_valid_full_customer
+    payload = {"customers": [customer_one, customer_two]}
+    response = client.post("/predict/batch", json=payload)
+    assert response.status_code == 422
+
+
+def test_invalid_customer_in_batch(client, get_valid_full_customer):
+    customer_one = get_valid_full_customer.copy()
+    customer_two = {**get_valid_full_customer, "tenure": -1}
+    payload = {"customers": [customer_one, customer_two]}
+    response = client.post("/predict/batch", json=payload)
+    assert response.status_code == 422
+
+
+def test_batch_size_limit(client, get_valid_full_customer):
+    customers = [{**get_valid_full_customer, "customerID": f"{i:04d}-ABCDE"} for i in range(1001)]
+    payload = {"customers": customers}
     response = client.post("/predict/batch", json=payload)
     assert response.status_code == 422
