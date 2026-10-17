@@ -1,10 +1,20 @@
 from fastapi import FastAPI
-from typing import Literal, Optional, Union
+from typing import Literal
 from pydantic import BaseModel, Field, field_validator
 from contextlib import asynccontextmanager
 import pandas as pd
 from . import model_service as ms
 import utils
+from collections import Counter
+
+
+def validate_unique_customer_ids(customers: list) -> list:
+    ids = [c.customerID for c in customers]
+    counts = Counter(ids)
+    duplicates = [customer_id for customer_id, count in counts.items() if count > 1]
+    if duplicates:
+        raise ValueError(f"Duplicate customer IDs: {duplicates}")
+    return customers
 
 
 @asynccontextmanager
@@ -53,10 +63,25 @@ class ChurnPredictionRequest(BaseModel):
             return None
         return value
 
+class BatchPredictionRequest(BaseModel):
+    customers: list[ChurnPredictionRequest] = Field(min_length=1, max_length=1000)
+
+    @field_validator("customers", mode="after")
+    @classmethod
+    def check_duplicates(cls, customers):
+        return validate_unique_customer_ids(customers)
 
 class ChurnPredictionResponse(BaseModel):
     customer_id: str
     churn_probability: float = Field(ge=0, le=1)
+
+class BatchPredictionResponse(BaseModel):
+    predictions: list[ChurnPredictionResponse] = Field(min_length=1, max_length=1000)
+
+    @field_validator("predictions", mode="after")
+    @classmethod
+    def check_duplicates(cls, predictions):
+        return validate_unique_customer_ids(predictions)
 
 
 @app.post("/customers/validate")
@@ -88,3 +113,13 @@ def predict_churn(customer: ChurnPredictionRequest) -> dict:
         "customer_id": customer.customerID,
         "churn_probability": probability
     }
+
+@app.post("/predict/batch", response_model=BatchPredictionResponse)
+def predict_churn_batch(customers: BatchPredictionRequest) -> dict:
+    customer_df = pd.DataFrame([customer.model_dump() for customer in customers.customers])
+    model = app.state.model
+    probabilities_df = ms.predict_churn_batch(model, customer_df)
+    probabilities_df = probabilities_df.rename(columns={"customerID": "customer_id"})
+    predictions = probabilities_df.to_dict(orient="records")
+
+    return {"predictions": predictions}
