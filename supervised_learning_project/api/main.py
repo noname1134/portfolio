@@ -8,8 +8,20 @@ import utils
 from collections import Counter
 
 
+def _get_customer_id(customer):
+    for name in ("customer_id", "customerID"):
+        if isinstance(customer, dict):
+            if name in customer:
+                return customer[name]
+        elif hasattr(customer, name):
+            return getattr(customer, name)
+    raise AttributeError(
+        "Customer has neither 'customer_id' nor 'customerID'"
+    )
+
+
 def validate_unique_customer_ids(customers: list) -> list:
-    ids = [c.customerID for c in customers]
+    ids = [_get_customer_id(c) for c in customers]
     counts = Counter(ids)
     duplicates = [customer_id for customer_id, count in counts.items() if count > 1]
     if duplicates:
@@ -119,7 +131,7 @@ def predict_churn_batch(customers: BatchPredictionRequest) -> dict:
     customer_df = pd.DataFrame([customer.model_dump() for customer in customers.customers])
     model = app.state.model
     probabilities_df = ms.predict_churn_batch(model, customer_df)
-    probabilities_df = probabilities_df.rename(columns={"customerID": "customer_id"})
+    probabilities_df.rename(columns={"customerID": "customer_id"}, inplace=True)
     predictions = probabilities_df.to_dict(orient="records")
 
     return {"predictions": predictions}
