@@ -1,13 +1,5 @@
 import pytest
-from fastapi.testclient import TestClient
-from api.main import app
-
-
-@pytest.fixture
-def client():
-    with TestClient(app) as test_client:
-        yield test_client
-
+from conftest import FAKE_CHURN_PROBABILITY
 
 @pytest.fixture
 def get_valid_full_customer():
@@ -77,17 +69,17 @@ def test_customer_validation(client, get_valid_customer, payload_overrides, expe
         assert len(details) > 0
 
 
-def test_single_prediction(client, get_valid_full_customer):
+def test_single_prediction(client, mock_model, get_valid_full_customer):
     response = client.post("/predict", json=get_valid_full_customer)
-    assert response.status_code == 200
+
+    assert response.status_code == 200, response.text
     data = response.json()
-
     assert data["customer_id"] == get_valid_full_customer["customerID"]
-    assert isinstance(data["churn_probability"], float)
-    assert 0.0 <= data["churn_probability"] <= 1.0
+    assert data["churn_probability"] == pytest.approx(FAKE_CHURN_PROBABILITY)
+    mock_model.predict_proba.assert_called_once()
 
 
-def test_batch_predictions(client, get_valid_full_customer):
+def test_batch_predictions(client, mock_model, get_valid_full_customer):
     customer_one = get_valid_full_customer.copy()
     customer_two = {**get_valid_full_customer, "customerID": "1234-ABCD"}
     payload = {"customers": [customer_one, customer_two]}
@@ -102,11 +94,12 @@ def test_batch_predictions(client, get_valid_full_customer):
     for pred in data["predictions"]:
         assert "customer_id" in pred
         assert "churn_probability" in pred
-        assert 0.0 <= pred["churn_probability"] <= 1.0
+        assert pred["churn_probability"] == pytest.approx(FAKE_CHURN_PROBABILITY)
 
     input_ids = [customer["customerID"] for customer in payload["customers"]]
     output_ids = [prediction["customer_id"] for prediction in data["predictions"]]
     assert output_ids == input_ids
+    mock_model.predict_proba.assert_called_once()
 
 def test_empty_batch(client):
     payload = {"customers": []}
@@ -124,7 +117,7 @@ def test_duplicate_customer_ids(client, get_valid_full_customer):
 
 def test_invalid_customer_in_batch(client, get_valid_full_customer):
     customer_one = get_valid_full_customer.copy()
-    customer_two = {**get_valid_full_customer, "tenure": -1}
+    customer_two = {**get_valid_full_customer, "customerID": f"1234-ABCDE", "tenure": -1}
     payload = {"customers": [customer_one, customer_two]}
     response = client.post("/predict/batch", json=payload)
     assert response.status_code == 422
