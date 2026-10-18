@@ -69,36 +69,31 @@ def test_customer_validation(client, get_valid_customer, payload_overrides, expe
         assert len(details) > 0
 
 
-def test_single_prediction(client, mock_model, get_valid_full_customer):
+def test_single_prediction(client, mock_model, get_valid_full_customer, expected_probability):
     response = client.post("/predict", json=get_valid_full_customer)
 
     assert response.status_code == 200, response.text
     data = response.json()
     assert data["customer_id"] == get_valid_full_customer["customerID"]
-    assert data["churn_probability"] == pytest.approx(FAKE_CHURN_PROBABILITY)
+    assert data["churn_probability"] == pytest.approx(expected_probability(get_valid_full_customer["customerID"]))
     mock_model.predict_proba.assert_called_once()
 
 
-def test_batch_predictions(client, mock_model, get_valid_full_customer):
-    customer_one = get_valid_full_customer.copy()
-    customer_two = {**get_valid_full_customer, "customerID": "1234-ABCD"}
-    payload = {"customers": [customer_one, customer_two]}
+def test_batch_predictions(client, mock_model, get_valid_full_customer, expected_probability):
+    customers = [{**get_valid_full_customer, "customerID": customer_id} for customer_id in ("A-1", "B-2", "C-3", "D-4")]
+    payload = {"customers": customers}
 
     response = client.post("/predict/batch", json=payload)
-    assert response.status_code == 200
+    assert response.status_code == 200, response.text
     data = response.json()
 
     assert "predictions" in data
-    assert len(data["predictions"]) == 2
+    predictions = data["predictions"]
+    expected_ids = [c["customerID"] for c in customers]
+    expected_probabilities = [expected_probability(cid) for cid in expected_ids]
 
-    for pred in data["predictions"]:
-        assert "customer_id" in pred
-        assert "churn_probability" in pred
-        assert pred["churn_probability"] == pytest.approx(FAKE_CHURN_PROBABILITY)
-
-    input_ids = [customer["customerID"] for customer in payload["customers"]]
-    output_ids = [prediction["customer_id"] for prediction in data["predictions"]]
-    assert output_ids == input_ids
+    assert [p["customer_id"] for p in predictions] == expected_ids
+    assert [p["churn_probability"] for p in predictions] == pytest.approx(expected_probabilities)
     mock_model.predict_proba.assert_called_once()
 
 def test_empty_batch(client):
